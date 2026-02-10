@@ -1,20 +1,16 @@
-# Base image with Playwright + Chromium preinstalled
-FROM mcr.microsoft.com/playwright:focal
+# Use the latest Playwright image (or match your package.json version)
+FROM mcr.microsoft.com/playwright:v1.58.2-focal
 
-# Set working directory
 WORKDIR /app
 
-# Copy package.json / lockfiles
+# Copy package files
 COPY package*.json ./
 
 # Install dependencies
 RUN npm install
 
-# Copy all your code
+# Copy app code
 COPY . .
-
-# Optional: expose a port if needed (for web services)
-# EXPOSE 3000
 
 # Run your tracker
 CMD ["node", "index.js"]
