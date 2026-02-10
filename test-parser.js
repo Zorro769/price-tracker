@@ -90,7 +90,7 @@ async function testParse(url) {
 }
 
 // Get URL from command line or use example
-const url = process.argv[2];
+const url = "https://www.amazon.pl/Conversations-God-1-uncommon-dialogue/dp/0340693258/ref=sr_1_1?__mk_pl_PL=%C3%85M%C3%85%C5%BD%C3%95%C3%91&crid=18KEFRKYMB5OW&dib=eyJ2IjoiMSJ9.28IjkGi26LDM9cexO2oK1z21Wivg2g5s0_ijg8SYuQ0toYT4lZ-AfI1m7EA2wIxGWIy2eJPe23pPmbq0fMpl-lYMrivO9X467eWTIChgFtwfZ02PQXCza58cBjfp_cKZPtdFD2UQ8zs8HfFvIOgf8ML8m8060UNlDj0hAJ6ice9h6zFkbwQBIHyhb6sFDErej0fyDug3u71bgMLIKBQ8RGyE_QYv1YsOJBZpy8JGSuGOIOH9XVRaStwr6MMBSaeS3Cwh5LQdg7FS2gAzGvC6T15L6SZY3oSAt4gWzMz_k0c.zl3_gJ7WW1uWInT8jmoocOZk3VzIHEAn_jWnfPtzNJw&dib_tag=se&keywords=Conversations+with+God%3A+An+Uncommon+Dialogue%2C+Book+1&qid=1770719576&sprefix=conversations+with+god+an+uncommon+dialogue+book+1%2Caps%2C140&sr=8-1";
 
 if (!url) {
     console.log('Usage: node test-parser.js <amazon-url>');
