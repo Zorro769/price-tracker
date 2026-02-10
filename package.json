@@ -21,6 +21,6 @@
     "axios": "^1.6.2",
     "cheerio": "^1.0.0-rc.12",
     "node-telegram-bot-api": "^0.64.0",
-    "puppeteer-core": "^24.37.2"
+    "puppeteer": "^24.37.2"
   }
 }
