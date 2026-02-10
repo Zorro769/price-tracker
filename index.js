@@ -76,11 +76,11 @@ class AmazonPriceTracker {
 
             await page.goto(url, {
                 waitUntil: "domcontentloaded",
-                timeout: 10000
+                timeout: 60000
             });
 
             // Human-like behaviour
-            await page.waitForTimeout(1000 + Math.random() * 1000);
+            await page.waitForTimeout(100 + Math.random() * 100);
             await page.mouse.wheel(0, 400);
 
             /* ----- TITLE ----- */
