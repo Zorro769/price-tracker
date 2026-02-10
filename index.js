@@ -2,7 +2,7 @@ const fs = require('fs').promises;
 const path = require('path');
 const axios = require('axios');
 const cheerio = require('cheerio');
-const puppeteer = require('puppeteer');
+const puppeteer = require('puppeteer-core');
 const TelegramBot = require('node-telegram-bot-api');
 
 // Configuration
@@ -72,6 +72,7 @@ class AmazonPriceTracker {
         try {
             browser = await puppeteer.launch({
                 headless: true,
+                executablePath: '/usr/bin/chromium-browser',
                 args: [
                     '--no-sandbox',      // Required for Render
                     '--disable-setuid-sandbox',
