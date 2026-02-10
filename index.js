@@ -2,6 +2,7 @@ const fs = require('fs').promises;
 const path = require('path');
 const axios = require('axios');
 const cheerio = require('cheerio');
+const puppeteer = require('puppeteer');
 const TelegramBot = require('node-telegram-bot-api');
 
 // Configuration
@@ -65,41 +66,50 @@ class AmazonPriceTracker {
      * Parse Amazon.pl product page and extract price and title
      */
     async parseAmazonPage(url) {
-        try {
-            console.log(`→ Fetching: ${url}`);
+        console.log(`→ Fetching: ${url}`);
 
-            const response = await axios.get(url, {
-                headers: {
-                    'User-Agent': CONFIG.userAgent,
-                    'Accept-Language': 'pl-PL,pl;q=0.9,en;q=0.8',
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-                    'Accept-Encoding': 'gzip, deflate, br',
-                    'Connection': 'keep-alive',
-                    'Upgrade-Insecure-Requests': '1',
-                    'Sec-Fetch-Dest': 'document',
-                    'Sec-Fetch-Mode': 'navigate',
-                    'Sec-Fetch-Site': 'none',
-                    'Cache-Control': 'max-age=0',
-                    'DNT': '1',
-                },
-                timeout: 15000
+        let browser;
+        try {
+            browser = await puppeteer.launch({
+                headless: true,
+                args: [
+                    '--no-sandbox',      // Required for Render
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-accelerated-2d-canvas',
+                    '--no-zygote',
+                    '--single-process',
+                ]
             });
 
-            const $ = cheerio.load(response.data);
+            const page = await browser.newPage();
+
+            // Realistic browser headers
+            await page.setUserAgent(
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
+                'AppleWebKit/537.36 (KHTML, like Gecko) ' +
+                'Chrome/118.0.5993.90 Safari/537.36'
+            );
+
+            await page.setExtraHTTPHeaders({
+                'Accept-Language': 'pl-PL,pl;q=0.9,en;q=0.8'
+            });
+
+            // Random delay to reduce bot detection
+            await new Promise(r => setTimeout(r, 2000));
+            // Go to the page
+            await page.goto(url, {
+                waitUntil: 'networkidle2',
+                timeout: 20000
+            });
+
+            // Wait for the product title or price to appear
+            await page.waitForSelector('#productTitle, .a-price', { timeout: 10000 }).catch(() => null);
 
             // Extract title
-            let title = $('#productTitle').text().trim();
-            if (!title) {
-                title = $('h1 span#productTitle').text().trim();
-            }
-            if (!title) {
-                title = $('span.product-title-word-break').text().trim();
-            }
+            const title = await page.$eval('#productTitle', el => el.textContent.trim()).catch(() => null);
 
-            // Extract price - Amazon.pl uses various selectors
-            let priceText = null;
-
-            // Try different price selectors
+            // Extract price
             const priceSelectors = [
                 '.a-price .a-offscreen',
                 'span.a-price-whole',
@@ -109,40 +119,35 @@ class AmazonPriceTracker {
                 'span.priceToPay .a-offscreen'
             ];
 
+            let priceText = null;
             for (const selector of priceSelectors) {
-                const element = $(selector).first();
-                if (element.length > 0) {
-                    priceText = element.text().trim();
+                const el = await page.$(selector);
+                if (el) {
+                    priceText = await page.evaluate(e => e.textContent.trim(), el);
                     if (priceText) break;
                 }
             }
 
             if (!priceText) {
-                // Try to get whole and decimal parts separately
-                const whole = $('span.a-price-whole').first().text().trim();
-                const decimal = $('span.a-price-fraction').first().text().trim();
-                if (whole) {
-                    priceText = whole + (decimal ? decimal : '');
-                }
+                // fallback: try to get whole + decimal parts separately
+                const whole = await page.$eval('span.a-price-whole', el => el.textContent.trim()).catch(() => '');
+                const decimal = await page.$eval('span.a-price-fraction', el => el.textContent.trim()).catch(() => '');
+                if (whole) priceText = whole + (decimal ? decimal : '');
             }
 
-            if (!priceText) {
-                console.log('✗ Price not found on page');
+            if (!title || !priceText) {
+                console.log('✗ Could not find title or price');
                 return null;
             }
 
-            // Parse price (handle formats like "49,99 zł" or "49.99 zł")
+            // Parse price (handle "49,99 zł" or "49.99 zł")
             const priceMatch = priceText.match(/[\d\s]+[,.]?\d*/);
             if (!priceMatch) {
                 console.log('✗ Could not parse price:', priceText);
                 return null;
             }
 
-            const price = parseFloat(
-                priceMatch[0]
-                    .replace(/\s/g, '')
-                    .replace(',', '.')
-            );
+            const price = parseFloat(priceMatch[0].replace(/\s/g, '').replace(',', '.'));
 
             console.log(`✓ Found: "${title}" - ${price} zł`);
 
@@ -154,9 +159,11 @@ class AmazonPriceTracker {
                 timestamp: new Date().toISOString()
             };
 
-        } catch (error) {
-            console.error(`✗ Error parsing ${url}:`, error.message);
+        } catch (err) {
+            console.error('✗ Puppeteer error:', err.message);
             return null;
+        } finally {
+            if (browser) await browser.close();
         }
     }
 
