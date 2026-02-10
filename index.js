@@ -61,34 +61,28 @@ class AmazonPriceTracker {
         try {
             console.log("→ Fetching:", url);
 
-            browser = await chromium.launch({
-                headless: true
+            const response = await axios.get(url, {
+                headers: {
+                    'User-Agent': CONFIG.userAgent,
+                    'Accept-Language': 'pl-PL,pl;q=0.9,en;q=0.8',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                },
+                timeout: 15000
             });
 
-            const context = await browser.newContext({
-                locale: "pl-PL",
-                userAgent:
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
-                viewport: { width: 1280, height: 800 }
-            });
+            const $ = cheerio.load(response.data);
 
-            const page = await context.newPage();
+            // Extract title
+            let title = $('#productTitle').text().trim();
+            if (!title) {
+                title = $('h1 span#productTitle').text().trim();
+            }
+            if (!title) {
+                title = $('span.product-title-word-break').text().trim();
+            }
 
-            await page.goto(url, {
-                waitUntil: "domcontentloaded",
-                timeout: 60000
-            });
-
-            // Human-like behaviour
-            await page.waitForTimeout(100 + Math.random() * 100);
-            await page.mouse.wheel(0, 400);
-
-            /* ----- TITLE ----- */
-
-            const title = await page
-                .locator("#productTitle")
-                .textContent()
-                .catch(() => null);
+            // Extract price - Amazon.pl uses various selectors
+            let priceText = null;
 
             /* ----- PRICE ----- */
 

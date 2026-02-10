@@ -90,7 +90,7 @@ async function testParse(url) {
 }
 
 // Get URL from command line or use example
-const url = "https://www.amazon.pl/Building-StoryBrand-2-0-Clarify-Customers/dp/1400251303/ref=sr_1_1?__mk_pl_PL=%C3%85M%C3%85%C5%BD%C3%95%C3%91&crid=OICOIZ6SRWK5&dib=eyJ2IjoiMSJ9.H0DnlVEo8xexOebJ52vW01RvcHHgv6gjZ8FGjO7ZXViJ7fjhkAoExFPsUaV3ozvbBK4_kQ7Raoy_GIz0oNqG8sxOujC1AhMXyGY84GCs6851o1uFxo4TkzijxxN9C6-inIWCr7di51YTbeWjyBbqDHKC0hxAolH5gFSvONTK0GZkF1khlgq5dQz7vb2SGT2iUTLKNICbpQGd5V1PC3SRZUt52QltIbie6IckXHVzUe-_lXjWHRXPcZplRmNi6xT2Cwb1x4lbeXgXGQmguvJ3OdJuKS5O8Oeuqy3U3h6ijNA.UE7Y738lEkv_Bdg0tQwhr-Z7ujLQhHIm_mAdfapqaC4&dib_tag=se&keywords=Building+a+StoryBrand&qid=1770676741&sprefix=building+a+storybrand%2Caps%2C139&sr=8-1";
+const url = process.argv[2];
 
 if (!url) {
     console.log('Usage: node test-parser.js <amazon-url>');
