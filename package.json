@@ -1,0 +1,25 @@
+{
+  "name": "amazon-price-tracker",
+  "version": "1.0.0",
+  "description": "Track Amazon.pl book prices and get Telegram notifications on price drops",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "check": "node index.js --once",
+    "test": "node test-parser.js"
+  },
+  "keywords": [
+    "amazon",
+    "price-tracker",
+    "telegram",
+    "scraper",
+    "books"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "axios": "^1.6.2",
+    "cheerio": "^1.0.0-rc.12",
+    "node-telegram-bot-api": "^0.64.0"
+  }
+}
