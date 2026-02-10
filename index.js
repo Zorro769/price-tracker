@@ -82,8 +82,6 @@ class AmazonPriceTracker {
             }
 
             // Extract price - Amazon.pl uses various selectors
-            let priceText = null;
-
             /* ----- PRICE ----- */
 
             const priceSelectors = [
