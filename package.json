@@ -1,6 +1,7 @@
 {
   "name": "amazon-price-tracker",
   "version": "1.0.0",
+  "type": "module",
   "description": "Track Amazon.pl book prices and get Telegram notifications on price drops",
   "main": "index.js",
   "scripts": {
