@@ -20,8 +20,36 @@ const CONFIG = {
 /* ================= EXPRESS SERVER ================= */
 const app = express();
 
-// Health check route only — must not touch worker
-app.get("/", (req, res) => res.send("Tracker alive"));
+// Disable etag to prevent caching issues
+app.set('etag', false);
+
+// Health check route - fixed to prevent double response
+app.get("/", (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    return res.status(200).send("Tracker alive");
+});
+
+// Status endpoint (optional - for debugging)
+app.get("/status", (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    return res.status(200).json({
+        status: "running",
+        timestamp: new Date().toISOString()
+    });
+});
+
+// 404 handler
+app.use((req, res) => {
+    return res.status(404).send("Not found");
+});
+
+// Error handler
+app.use((err, req, res, next) => {
+    console.error("Express error:", err.message);
+    if (!res.headersSent) {
+        return res.status(500).send("Internal error");
+    }
+});
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
@@ -61,6 +89,7 @@ class AmazonPriceTracker {
 
     async init() {
         this.prices = await this.loadJSON(CONFIG.pricesFile, {});
+        console.log("✓ Tracker initialized");
     }
 
     async readBookUrls() {
@@ -82,6 +111,7 @@ class AmazonPriceTracker {
                 headers: {
                     "User-Agent": ua,
                     "Accept-Language": "pl-PL,pl;q=0.9,en;q=0.8",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
                 },
             });
 
@@ -93,9 +123,14 @@ class AmazonPriceTracker {
                 $(".a-price .a-offscreen").first().text().trim() ||
                 $("span.priceToPay .a-offscreen").first().text().trim();
 
-            if (!priceText) return null;
+            if (!priceText) {
+                console.log("✗ No price found:", url);
+                return null;
+            }
 
             const price = parseFloat(priceText.replace(/[^\d,]/g, "").replace(",", "."));
+
+            console.log(`✓ ${title.substring(0, 40)}... - ${price} zł`);
 
             return {
                 url,
@@ -105,33 +140,44 @@ class AmazonPriceTracker {
             };
         } catch (err) {
             if (retry < 2) {
+                console.log(`⚠ Retry ${retry + 1} for ${url}`);
                 await sleep(5000 * (retry + 1));
                 return this.parseAmazonPage(url, retry + 1);
             }
-            console.log("Parse failed:", url);
+            console.log("✗ Parse failed:", url, err.message);
             return null;
         }
     }
 
     async notifyDrop(book, oldPrice) {
         const diff = oldPrice - book.price;
+        const percent = ((diff / oldPrice) * 100).toFixed(2);
+        
         const msg =
-            `📉 Price Drop!\n\n` +
-            `${book.title}\n` +
-            `Old: ${oldPrice} zł\n` +
-            `New: ${book.price} zł\n` +
-            `${book.url}`;
+            `📉 *Price Drop Alert!*\n\n` +
+            `📚 ${book.title}\n\n` +
+            `💰 Old: ${oldPrice.toFixed(2)} zł\n` +
+            `💵 New: ${book.price.toFixed(2)} zł\n` +
+            `📊 Saved: ${diff.toFixed(2)} zł (${percent}%)\n\n` +
+            `🔗 ${book.url}`;
 
         try {
-            await this.bot.sendMessage(CONFIG.telegramChatId, msg);
+            await this.bot.sendMessage(CONFIG.telegramChatId, msg, {
+                parse_mode: "Markdown"
+            });
+            console.log("✓ Telegram notification sent");
         } catch (err) {
-            console.log("Telegram error:", err.message);
+            console.log("✗ Telegram error:", err.message);
         }
     }
 
     // Batch processor
     async runBatch() {
-        if (this.isRunning) return;
+        if (this.isRunning) {
+            console.log("⚠ Batch already running, skipping");
+            return;
+        }
+        
         this.isRunning = true;
 
         try {
@@ -141,18 +187,25 @@ class AmazonPriceTracker {
             const start = progress.index;
             const end = Math.min(start + CONFIG.batchSize, urls.length);
 
-            console.log(`Processing batch ${start} → ${end - 1}`);
+            console.log(`\n=== Processing batch ${start} → ${end - 1} of ${urls.length} ===`);
 
             for (let i = start; i < end; i++) {
                 const url = urls[i];
                 const data = await this.parseAmazonPage(url);
+                
                 if (!data) continue;
 
                 if (this.prices[url] && data.price < this.prices[url].price) {
+                    console.log("🎉 PRICE DROP DETECTED!");
                     await this.notifyDrop(data, this.prices[url].price);
                 }
 
                 this.prices[url] = data;
+                
+                // Small delay between requests in the same batch
+                if (i < end - 1) {
+                    await sleep(2000);
+                }
             }
 
             await this.saveJSON(CONFIG.pricesFile, this.prices);
@@ -160,20 +213,31 @@ class AmazonPriceTracker {
             // Update progress
             if (end >= urls.length) {
                 await this.saveJSON(CONFIG.progressFile, { index: 0 });
-                console.log("Cycle completed");
+                console.log("✓ Full cycle completed. Starting over.\n");
             } else {
                 await this.saveJSON(CONFIG.progressFile, { index: end });
+                console.log(`✓ Batch complete. Next batch starts at ${end}\n`);
             }
         } catch (err) {
-            console.error("Batch error:", err);
+            console.error("✗ Batch error:", err.message);
+        } finally {
+            this.isRunning = false;
         }
-
-        this.isRunning = false;
     }
 
     async startWorker() {
+        console.log("🚀 Worker started");
+        console.log(`⏰ Batch size: ${CONFIG.batchSize}`);
+        console.log(`⏰ Pause between batches: ${CONFIG.batchPauseMs / 60000} minutes\n`);
+        
         while (true) {
-            await this.runBatch();
+            try {
+                await this.runBatch();
+            } catch (err) {
+                console.error("✗ Worker error:", err.message);
+            }
+            
+            console.log(`⏳ Waiting ${CONFIG.batchPauseMs / 60000} minutes until next batch...\n`);
             await sleep(CONFIG.batchPauseMs);
         }
     }
@@ -181,7 +245,12 @@ class AmazonPriceTracker {
 
 /* ================= START WORKER ================= */
 (async () => {
-    const tracker = new AmazonPriceTracker();
-    await tracker.init();
-    tracker.startWorker(); // run independently, no await
+    try {
+        const tracker = new AmazonPriceTracker();
+        await tracker.init();
+        tracker.startWorker(); // run independently, no await
+    } catch (err) {
+        console.error("✗ Fatal error:", err.message);
+        process.exit(1);
+    }
 })();
