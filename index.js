@@ -33,9 +33,32 @@ const app = express();
 app.disable('x-powered-by');
 app.set('etag', false);
 
+// Middleware to prevent double sends
+app.use((req, res, next) => {
+    const originalSend = res.send;
+    const originalJson = res.json;
+    let responseSent = false;
+
+    res.send = function (data) {
+        if (!responseSent) {
+            responseSent = true;
+            originalSend.call(this, data);
+        }
+    };
+
+    res.json = function (data) {
+        if (!responseSent) {
+            responseSent = true;
+            originalJson.call(this, data);
+        }
+    };
+
+    next();
+});
+
 app.get("/", (req, res) => {
     res.set('Cache-Control', 'no-store');
-    return res.status(200).json({
+    res.status(200).json({
         status: "running",
         message: "Amazon Price Tracker is active",
         timestamp: new Date().toISOString()
@@ -43,15 +66,19 @@ app.get("/", (req, res) => {
 });
 
 app.get("/health", (req, res) => {
-    return res.status(200).send("OK");
+    res.status(200).send("OK");
 });
 
 // Error handlers
-app.use((req, res) => res.status(404).send("Not found"));
+app.use((req, res) => {
+    if (!res.headersSent) {
+        res.status(404).send("Not found");
+    }
+});
 app.use((err, req, res, next) => {
     console.error("Express error:", err.message);
     if (!res.headersSent) {
-        return res.status(500).send("Error");
+        res.status(500).send("Error");
     }
 });
 
