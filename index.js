@@ -83,7 +83,10 @@ app.use((err, req, res, next) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`✓ Server running on port ${PORT}`));
+const HOST = '0.0.0.0'; // Bind to all interfaces for Render
+app.listen(PORT, HOST, () => {
+    log.success(`Server running on ${HOST}:${PORT}`);
+});
 
 /* ================= UTILITIES ================= */
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
