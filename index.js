@@ -10,22 +10,39 @@ const CONFIG = {
     // Telegram
     telegramBotToken: process.env.TELEGRAM_BOT_TOKEN,
     telegramChatId: process.env.TELEGRAM_CHAT_ID,
-
+    
     // Files
     booksFile: "books.txt",
     pricesFile: "prices.json",
     progressFile: "progress.json",
-
+    
     // Anti-blocking settings
-    batchSize: 3,                    // Process only 3 books at a time
-    batchPauseMinutes: 10,           // Wait 10 minutes between batches
-    requestDelaySeconds: 8,          // 8 seconds between each request
-    randomDelayRange: 5,             // +/- random 0-5 seconds
-    maxRetries: 3,                   // Retry failed requests 3 times
-    requestTimeout: 30000,           // 30 second timeout
+    batchSize: 3,
+    batchPauseMinutes: 10,
+    requestDelaySeconds: 8,
+    randomDelayRange: 5,
+    maxRetries: 3,
+    requestTimeout: 30000,
+    
+    // Proxy (optional)
+    proxyUrl: process.env.PROXY_URL,
+};
 
-    // Proxy (optional - set PROXY_URL in environment if using)
-    proxyUrl: process.env.PROXY_URL, // e.g., http://user:pass@proxy:port
+/* ================= UTILITIES ================= */
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+const randomDelay = () => {
+    const base = CONFIG.requestDelaySeconds * 1000;
+    const random = Math.random() * CONFIG.randomDelayRange * 1000;
+    return base + random;
+};
+
+const log = {
+    info: (msg) => console.log(`[${new Date().toISOString()}] ℹ ${msg}`),
+    success: (msg) => console.log(`[${new Date().toISOString()}] ✓ ${msg}`),
+    error: (msg) => console.log(`[${new Date().toISOString()}] ✗ ${msg}`),
+    warning: (msg) => console.log(`[${new Date().toISOString()}] ⚠ ${msg}`),
+    drop: (msg) => console.log(`[${new Date().toISOString()}] 🎉 ${msg}`),
 };
 
 /* ================= EXPRESS SERVER (for Render) ================= */
@@ -39,14 +56,14 @@ app.use((req, res, next) => {
     const originalJson = res.json;
     let responseSent = false;
 
-    res.send = function (data) {
+    res.send = function(data) {
         if (!responseSent) {
             responseSent = true;
             originalSend.call(this, data);
         }
     };
 
-    res.json = function (data) {
+    res.json = function(data) {
         if (!responseSent) {
             responseSent = true;
             originalJson.call(this, data);
@@ -75,35 +92,28 @@ app.use((req, res) => {
         res.status(404).send("Not found");
     }
 });
+
 app.use((err, req, res, next) => {
-    console.error("Express error:", err.message);
+    log.error(`Express error: ${err.message}`);
     if (!res.headersSent) {
         res.status(500).send("Error");
     }
 });
 
+// Start Express server FIRST
 const PORT = process.env.PORT || 3000;
-const HOST = '0.0.0.0'; // Bind to all interfaces for Render
-app.listen(PORT, HOST, () => {
-    log.success(`Server running on ${HOST}:${PORT}`);
+const HOST = '0.0.0.0';
+
+const server = app.listen(PORT, HOST, () => {
+    log.success(`Express server listening on ${HOST}:${PORT}`);
+    log.info("Ready to accept HTTP connections from Render");
 });
 
-/* ================= UTILITIES ================= */
-const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
-const randomDelay = () => {
-    const base = CONFIG.requestDelaySeconds * 1000;
-    const random = Math.random() * CONFIG.randomDelayRange * 1000;
-    return base + random;
-};
-
-const log = {
-    info: (msg) => console.log(`[${new Date().toISOString()}] ℹ ${msg}`),
-    success: (msg) => console.log(`[${new Date().toISOString()}] ✓ ${msg}`),
-    error: (msg) => console.log(`[${new Date().toISOString()}] ✗ ${msg}`),
-    warning: (msg) => console.log(`[${new Date().toISOString()}] ⚠ ${msg}`),
-    drop: (msg) => console.log(`[${new Date().toISOString()}] 🎉 ${msg}`),
-};
+// Handle server errors
+server.on('error', (err) => {
+    log.error(`Server error: ${err.message}`);
+    process.exit(1);
+});
 
 /* ================= AMAZON SCRAPER CLASS ================= */
 class AmazonPriceTracker {
@@ -111,8 +121,7 @@ class AmazonPriceTracker {
         this.bot = new TelegramBot(CONFIG.telegramBotToken, { polling: false });
         this.prices = {};
         this.isRunning = false;
-
-        // Rotating user agents - realistic browsers
+        
         this.userAgents = [
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -121,8 +130,7 @@ class AmazonPriceTracker {
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2.1 Safari/605.1.15",
             "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
         ];
-
-        // Request stats
+        
         this.stats = {
             totalRequests: 0,
             successfulRequests: 0,
@@ -131,7 +139,6 @@ class AmazonPriceTracker {
         };
     }
 
-    /* ================= FILE OPERATIONS ================= */
     async loadJSON(file, fallback = {}) {
         try {
             const data = await fs.readFile(file, "utf8");
@@ -164,7 +171,6 @@ class AmazonPriceTracker {
         }
     }
 
-    /* ================= SMART SCRAPING WITH ANTI-BLOCKING ================= */
     getRandomUserAgent() {
         return this.userAgents[Math.floor(Math.random() * this.userAgents.length)];
     }
@@ -175,7 +181,7 @@ class AmazonPriceTracker {
             "pl-PL,pl;q=0.9,en;q=0.8",
             "pl,en-US;q=0.9,en;q=0.8",
         ];
-
+        
         return {
             "User-Agent": this.getRandomUserAgent(),
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
@@ -194,17 +200,16 @@ class AmazonPriceTracker {
 
     async parseAmazonPage(url, retryCount = 0) {
         this.stats.totalRequests++;
-
+        
         try {
             log.info(`Fetching: ${url.substring(0, 60)}...`);
-
+            
             const config = {
                 timeout: CONFIG.requestTimeout,
                 headers: this.getRealisticHeaders(),
                 maxRedirects: 5,
             };
-
-            // Add proxy if configured
+            
             if (CONFIG.proxyUrl) {
                 const HttpsProxyAgent = require('https-proxy-agent');
                 config.httpsAgent = new HttpsProxyAgent(CONFIG.proxyUrl);
@@ -213,13 +218,11 @@ class AmazonPriceTracker {
             const response = await axios.get(url, config);
             const $ = cheerio.load(response.data);
 
-            // Extract title with multiple fallbacks
             let title = $("#productTitle").text().trim();
             if (!title) title = $("h1 span#productTitle").text().trim();
             if (!title) title = $("span.product-title-word-break").text().trim();
             if (!title) title = "Unknown Product";
 
-            // Extract price with multiple selectors
             let priceText = null;
             const priceSelectors = [
                 ".a-price .a-offscreen",
@@ -238,7 +241,6 @@ class AmazonPriceTracker {
                 }
             }
 
-            // Fallback: combine whole + decimal
             if (!priceText) {
                 const whole = $("span.a-price-whole").first().text().trim();
                 const decimal = $("span.a-price-fraction").first().text().trim();
@@ -250,7 +252,6 @@ class AmazonPriceTracker {
                 return null;
             }
 
-            // Parse price (handles "49,99 zł" or "49.99 zł")
             const cleanPrice = priceText.replace(/[^\d,]/g, "").replace(",", ".");
             const price = parseFloat(cleanPrice);
 
@@ -261,7 +262,7 @@ class AmazonPriceTracker {
 
             const shortTitle = title.length > 50 ? title.substring(0, 50) + "..." : title;
             log.success(`Found: "${shortTitle}" - ${price.toFixed(2)} zł`);
-
+            
             this.stats.successfulRequests++;
 
             return {
@@ -273,9 +274,8 @@ class AmazonPriceTracker {
             };
 
         } catch (error) {
-            // Retry logic with exponential backoff
             if (retryCount < CONFIG.maxRetries) {
-                const waitTime = Math.pow(2, retryCount) * 5000; // 5s, 10s, 20s
+                const waitTime = Math.pow(2, retryCount) * 5000;
                 log.warning(`Error (${error.message}). Retrying in ${waitTime / 1000}s... (${retryCount + 1}/${CONFIG.maxRetries})`);
                 await sleep(waitTime);
                 return this.parseAmazonPage(url, retryCount + 1);
@@ -287,12 +287,11 @@ class AmazonPriceTracker {
         }
     }
 
-    /* ================= TELEGRAM NOTIFICATION ================= */
     async sendPriceDropNotification(book, oldPrice) {
         const priceDrop = oldPrice - book.price;
         const percentDrop = ((priceDrop / oldPrice) * 100).toFixed(2);
 
-        const message =
+        const message = 
             `📉 *Price Drop Alert!*\n\n` +
             `📚 ${book.title}\n\n` +
             `💰 Old Price: ${oldPrice.toFixed(2)} zł\n` +
@@ -311,7 +310,6 @@ class AmazonPriceTracker {
         }
     }
 
-    /* ================= BATCH PROCESSOR ================= */
     async processBatch() {
         if (this.isRunning) {
             log.warning("Batch already running, skipping");
@@ -322,7 +320,7 @@ class AmazonPriceTracker {
 
         try {
             const urls = await this.readBookUrls();
-
+            
             if (urls.length === 0) {
                 log.error("No URLs found in books.txt");
                 this.isRunning = false;
@@ -341,8 +339,7 @@ class AmazonPriceTracker {
 
             for (let i = startIndex; i < endIndex; i++) {
                 const url = urls[i];
-
-                // Random delay before each request (except first)
+                
                 if (processedInBatch > 0) {
                     const delayMs = randomDelay();
                     log.info(`Waiting ${(delayMs / 1000).toFixed(1)}s before next request...`);
@@ -358,7 +355,6 @@ class AmazonPriceTracker {
 
                 processedInBatch++;
 
-                // Check for price drop
                 if (this.prices[url]) {
                     const oldPrice = this.prices[url].price;
                     const newPrice = bookData.price;
@@ -376,16 +372,13 @@ class AmazonPriceTracker {
                     log.info("First time tracking this book");
                 }
 
-                // Update stored price
                 this.prices[url] = bookData;
-                console.log(""); // Empty line for readability
+                console.log("");
             }
 
-            // Save prices
             await this.saveJSON(CONFIG.pricesFile, this.prices);
             log.success("Prices saved");
 
-            // Update progress
             if (endIndex >= urls.length) {
                 await this.saveJSON(CONFIG.progressFile, { index: 0 });
                 log.success("Full cycle completed! Starting over from beginning.\n");
@@ -394,7 +387,6 @@ class AmazonPriceTracker {
                 log.info(`Progress saved. Next batch starts at book ${endIndex + 1}\n`);
             }
 
-            // Print statistics
             log.info(`\n${"=".repeat(60)}`);
             log.info("Session Statistics:");
             log.info(`  Total Requests: ${this.stats.totalRequests}`);
@@ -410,12 +402,11 @@ class AmazonPriceTracker {
         }
     }
 
-    /* ================= CONTINUOUS WORKER ================= */
     async startWorker() {
         const pauseMs = CONFIG.batchPauseMinutes * 60 * 1000;
-
+        
         log.info("\n" + "=".repeat(60));
-        log.info("🚀 Amazon Price Tracker Started");
+        log.info("🚀 Amazon Price Tracker Worker Started");
         log.info("=".repeat(60));
         log.info(`Configuration:`);
         log.info(`  - Batch Size: ${CONFIG.batchSize} books`);
@@ -425,7 +416,6 @@ class AmazonPriceTracker {
         log.info(`  - Proxy: ${CONFIG.proxyUrl ? "Enabled" : "Disabled"}`);
         log.info("=".repeat(60) + "\n");
 
-        // Main loop
         while (true) {
             try {
                 await this.processBatch();
@@ -439,33 +429,38 @@ class AmazonPriceTracker {
     }
 }
 
-/* ================= START APPLICATION ================= */
-(async () => {
+/* ================= START WORKER (after server is ready) ================= */
+setTimeout(async () => {
     try {
-        log.info("Initializing Amazon Price Tracker...");
-
+        log.info("Starting price tracking worker...");
+        
         const tracker = new AmazonPriceTracker();
         await tracker.init();
-
-        // Start background worker (non-blocking)
+        
         tracker.startWorker().catch(err => {
             log.error(`Worker crashed: ${err.message}`);
             process.exit(1);
         });
-
+        
     } catch (error) {
         log.error(`Fatal initialization error: ${error.message}`);
         process.exit(1);
     }
-})();
+}, 1000); // Wait 1 second for server to fully start
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
     log.info('Received SIGTERM, shutting down gracefully...');
-    process.exit(0);
+    server.close(() => {
+        log.info('Server closed');
+        process.exit(0);
+    });
 });
 
 process.on('SIGINT', () => {
     log.info('Received SIGINT, shutting down gracefully...');
-    process.exit(0);
+    server.close(() => {
+        log.info('Server closed');
+        process.exit(0);
+    });
 });
