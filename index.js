@@ -18,7 +18,7 @@ const CONFIG = {
     
     // Anti-blocking settings
     batchSize: 3,
-    batchPauseMinutes: 10,
+    batchPauseMinutes: 5,
     requestDelaySeconds: 8,
     randomDelayRange: 5,
     maxRetries: 3,
