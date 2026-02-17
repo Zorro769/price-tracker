@@ -10,20 +10,20 @@ const CONFIG = {
     // Telegram
     telegramBotToken: process.env.TELEGRAM_BOT_TOKEN,
     telegramChatId: process.env.TELEGRAM_CHAT_ID,
-    
+
     // Files
     booksFile: "books.txt",
     pricesFile: "prices.json",
     progressFile: "progress.json",
-    
+
     // Anti-blocking settings
     batchSize: 3,                    // Process only 3 books at a time
-    batchPauseMinutes: 5,            // Wait 5 minutes between batches (reduced for Render free tier)
+    batchPauseMinutes: 1,            // Wait 5 minutes between batches (reduced for Render free tier)
     requestDelaySeconds: 8,          // 8 seconds between each request
     randomDelayRange: 5,             // +/- random 0-5 seconds
     maxRetries: 3,                   // Retry failed requests 3 times
     requestTimeout: 30000,           // 30 second timeout
-    
+
     // Proxy (optional - set PROXY_URL in environment if using)
     proxyUrl: process.env.PROXY_URL, // e.g., http://user:pass@proxy:port
 };
@@ -56,14 +56,14 @@ app.use((req, res, next) => {
     const originalJson = res.json;
     let responseSent = false;
 
-    res.send = function(data) {
+    res.send = function (data) {
         if (!responseSent) {
             responseSent = true;
             originalSend.call(this, data);
         }
     };
 
-    res.json = function(data) {
+    res.json = function (data) {
         if (!responseSent) {
             responseSent = true;
             originalJson.call(this, data);
@@ -111,7 +111,7 @@ class AmazonPriceTracker {
         this.bot = new TelegramBot(CONFIG.telegramBotToken, { polling: false });
         this.prices = {};
         this.isRunning = false;
-        
+
         // Rotating user agents - realistic browsers
         this.userAgents = [
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
@@ -121,7 +121,7 @@ class AmazonPriceTracker {
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2.1 Safari/605.1.15",
             "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
         ];
-        
+
         // Request stats
         this.stats = {
             totalRequests: 0,
@@ -175,7 +175,7 @@ class AmazonPriceTracker {
             "pl-PL,pl;q=0.9,en;q=0.8",
             "pl,en-US;q=0.9,en;q=0.8",
         ];
-        
+
         return {
             "User-Agent": this.getRandomUserAgent(),
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
@@ -194,16 +194,16 @@ class AmazonPriceTracker {
 
     async parseAmazonPage(url, retryCount = 0) {
         this.stats.totalRequests++;
-        
+
         try {
             log.info(`Fetching: ${url.substring(0, 60)}...`);
-            
+
             const config = {
                 timeout: CONFIG.requestTimeout,
                 headers: this.getRealisticHeaders(),
                 maxRedirects: 5,
             };
-            
+
             // Add proxy if configured
             if (CONFIG.proxyUrl) {
                 const HttpsProxyAgent = require('https-proxy-agent');
@@ -261,7 +261,7 @@ class AmazonPriceTracker {
 
             const shortTitle = title.length > 50 ? title.substring(0, 50) + "..." : title;
             log.success(`Found: "${shortTitle}" - ${price.toFixed(2)} zł`);
-            
+
             this.stats.successfulRequests++;
 
             return {
@@ -292,7 +292,7 @@ class AmazonPriceTracker {
         const priceDrop = oldPrice - book.price;
         const percentDrop = ((priceDrop / oldPrice) * 100).toFixed(2);
 
-        const message = 
+        const message =
             `📉 *Price Drop Alert!*\n\n` +
             `📚 ${book.title}\n\n` +
             `💰 Old Price: ${oldPrice.toFixed(2)} zł\n` +
@@ -322,7 +322,7 @@ class AmazonPriceTracker {
 
         try {
             const urls = await this.readBookUrls();
-            
+
             if (urls.length === 0) {
                 log.error("No URLs found in books.txt");
                 this.isRunning = false;
@@ -341,7 +341,7 @@ class AmazonPriceTracker {
 
             for (let i = startIndex; i < endIndex; i++) {
                 const url = urls[i];
-                
+
                 // Random delay before each request (except first)
                 if (processedInBatch > 0) {
                     const delayMs = randomDelay();
@@ -413,7 +413,7 @@ class AmazonPriceTracker {
     /* ================= CONTINUOUS WORKER ================= */
     async startWorker() {
         const pauseMs = CONFIG.batchPauseMinutes * 60 * 1000;
-        
+
         log.info("\n" + "=".repeat(60));
         log.info("🚀 Amazon Price Tracker Started");
         log.info("=".repeat(60));
@@ -457,20 +457,20 @@ const startSelfPing = () => {
 (async () => {
     try {
         log.info("Initializing Amazon Price Tracker...");
-        
+
         const tracker = new AmazonPriceTracker();
         await tracker.init();
-        
+
         // Start self-ping to prevent Render from thinking service is dead
         startSelfPing();
         log.info("✓ Self-ping enabled (every 5 minutes)\n");
-        
+
         // Start background worker (non-blocking)
         tracker.startWorker().catch(err => {
             log.error(`Worker crashed: ${err.message}`);
             process.exit(1);
         });
-        
+
     } catch (error) {
         log.error(`Fatal initialization error: ${error.message}`);
         process.exit(1);
