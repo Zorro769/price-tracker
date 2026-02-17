@@ -17,15 +17,15 @@ const CONFIG = {
     progressFile: "progress.json",
     
     // Anti-blocking settings
-    batchSize: 3,
-    batchPauseMinutes: 5,
-    requestDelaySeconds: 8,
-    randomDelayRange: 5,
-    maxRetries: 3,
-    requestTimeout: 30000,
+    batchSize: 3,                    // Process only 3 books at a time
+    batchPauseMinutes: 5,            // Wait 5 minutes between batches (reduced for Render free tier)
+    requestDelaySeconds: 8,          // 8 seconds between each request
+    randomDelayRange: 5,             // +/- random 0-5 seconds
+    maxRetries: 3,                   // Retry failed requests 3 times
+    requestTimeout: 30000,           // 30 second timeout
     
-    // Proxy (optional)
-    proxyUrl: process.env.PROXY_URL,
+    // Proxy (optional - set PROXY_URL in environment if using)
+    proxyUrl: process.env.PROXY_URL, // e.g., http://user:pass@proxy:port
 };
 
 /* ================= UTILITIES ================= */
@@ -92,27 +92,17 @@ app.use((req, res) => {
         res.status(404).send("Not found");
     }
 });
-
 app.use((err, req, res, next) => {
-    log.error(`Express error: ${err.message}`);
+    console.error("Express error:", err.message);
     if (!res.headersSent) {
         res.status(500).send("Error");
     }
 });
 
-// Start Express server FIRST
 const PORT = process.env.PORT || 3000;
-const HOST = '0.0.0.0';
-
-const server = app.listen(PORT, HOST, () => {
-    log.success(`Express server listening on ${HOST}:${PORT}`);
-    log.info("Ready to accept HTTP connections from Render");
-});
-
-// Handle server errors
-server.on('error', (err) => {
-    log.error(`Server error: ${err.message}`);
-    process.exit(1);
+const HOST = '0.0.0.0'; // Bind to all interfaces for Render
+app.listen(PORT, HOST, () => {
+    log.success(`Server running on ${HOST}:${PORT}`);
 });
 
 /* ================= AMAZON SCRAPER CLASS ================= */
@@ -122,6 +112,7 @@ class AmazonPriceTracker {
         this.prices = {};
         this.isRunning = false;
         
+        // Rotating user agents - realistic browsers
         this.userAgents = [
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -131,6 +122,7 @@ class AmazonPriceTracker {
             "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
         ];
         
+        // Request stats
         this.stats = {
             totalRequests: 0,
             successfulRequests: 0,
@@ -139,6 +131,7 @@ class AmazonPriceTracker {
         };
     }
 
+    /* ================= FILE OPERATIONS ================= */
     async loadJSON(file, fallback = {}) {
         try {
             const data = await fs.readFile(file, "utf8");
@@ -171,6 +164,7 @@ class AmazonPriceTracker {
         }
     }
 
+    /* ================= SMART SCRAPING WITH ANTI-BLOCKING ================= */
     getRandomUserAgent() {
         return this.userAgents[Math.floor(Math.random() * this.userAgents.length)];
     }
@@ -210,6 +204,7 @@ class AmazonPriceTracker {
                 maxRedirects: 5,
             };
             
+            // Add proxy if configured
             if (CONFIG.proxyUrl) {
                 const HttpsProxyAgent = require('https-proxy-agent');
                 config.httpsAgent = new HttpsProxyAgent(CONFIG.proxyUrl);
@@ -218,11 +213,13 @@ class AmazonPriceTracker {
             const response = await axios.get(url, config);
             const $ = cheerio.load(response.data);
 
+            // Extract title with multiple fallbacks
             let title = $("#productTitle").text().trim();
             if (!title) title = $("h1 span#productTitle").text().trim();
             if (!title) title = $("span.product-title-word-break").text().trim();
             if (!title) title = "Unknown Product";
 
+            // Extract price with multiple selectors
             let priceText = null;
             const priceSelectors = [
                 ".a-price .a-offscreen",
@@ -241,6 +238,7 @@ class AmazonPriceTracker {
                 }
             }
 
+            // Fallback: combine whole + decimal
             if (!priceText) {
                 const whole = $("span.a-price-whole").first().text().trim();
                 const decimal = $("span.a-price-fraction").first().text().trim();
@@ -252,6 +250,7 @@ class AmazonPriceTracker {
                 return null;
             }
 
+            // Parse price (handles "49,99 zł" or "49.99 zł")
             const cleanPrice = priceText.replace(/[^\d,]/g, "").replace(",", ".");
             const price = parseFloat(cleanPrice);
 
@@ -274,8 +273,9 @@ class AmazonPriceTracker {
             };
 
         } catch (error) {
+            // Retry logic with exponential backoff
             if (retryCount < CONFIG.maxRetries) {
-                const waitTime = Math.pow(2, retryCount) * 5000;
+                const waitTime = Math.pow(2, retryCount) * 5000; // 5s, 10s, 20s
                 log.warning(`Error (${error.message}). Retrying in ${waitTime / 1000}s... (${retryCount + 1}/${CONFIG.maxRetries})`);
                 await sleep(waitTime);
                 return this.parseAmazonPage(url, retryCount + 1);
@@ -287,6 +287,7 @@ class AmazonPriceTracker {
         }
     }
 
+    /* ================= TELEGRAM NOTIFICATION ================= */
     async sendPriceDropNotification(book, oldPrice) {
         const priceDrop = oldPrice - book.price;
         const percentDrop = ((priceDrop / oldPrice) * 100).toFixed(2);
@@ -310,6 +311,7 @@ class AmazonPriceTracker {
         }
     }
 
+    /* ================= BATCH PROCESSOR ================= */
     async processBatch() {
         if (this.isRunning) {
             log.warning("Batch already running, skipping");
@@ -340,6 +342,7 @@ class AmazonPriceTracker {
             for (let i = startIndex; i < endIndex; i++) {
                 const url = urls[i];
                 
+                // Random delay before each request (except first)
                 if (processedInBatch > 0) {
                     const delayMs = randomDelay();
                     log.info(`Waiting ${(delayMs / 1000).toFixed(1)}s before next request...`);
@@ -355,6 +358,7 @@ class AmazonPriceTracker {
 
                 processedInBatch++;
 
+                // Check for price drop
                 if (this.prices[url]) {
                     const oldPrice = this.prices[url].price;
                     const newPrice = bookData.price;
@@ -372,13 +376,16 @@ class AmazonPriceTracker {
                     log.info("First time tracking this book");
                 }
 
+                // Update stored price
                 this.prices[url] = bookData;
-                console.log("");
+                console.log(""); // Empty line for readability
             }
 
+            // Save prices
             await this.saveJSON(CONFIG.pricesFile, this.prices);
             log.success("Prices saved");
 
+            // Update progress
             if (endIndex >= urls.length) {
                 await this.saveJSON(CONFIG.progressFile, { index: 0 });
                 log.success("Full cycle completed! Starting over from beginning.\n");
@@ -387,6 +394,7 @@ class AmazonPriceTracker {
                 log.info(`Progress saved. Next batch starts at book ${endIndex + 1}\n`);
             }
 
+            // Print statistics
             log.info(`\n${"=".repeat(60)}`);
             log.info("Session Statistics:");
             log.info(`  Total Requests: ${this.stats.totalRequests}`);
@@ -402,11 +410,12 @@ class AmazonPriceTracker {
         }
     }
 
+    /* ================= CONTINUOUS WORKER ================= */
     async startWorker() {
         const pauseMs = CONFIG.batchPauseMinutes * 60 * 1000;
         
         log.info("\n" + "=".repeat(60));
-        log.info("🚀 Amazon Price Tracker Worker Started");
+        log.info("🚀 Amazon Price Tracker Started");
         log.info("=".repeat(60));
         log.info(`Configuration:`);
         log.info(`  - Batch Size: ${CONFIG.batchSize} books`);
@@ -416,6 +425,7 @@ class AmazonPriceTracker {
         log.info(`  - Proxy: ${CONFIG.proxyUrl ? "Enabled" : "Disabled"}`);
         log.info("=".repeat(60) + "\n");
 
+        // Main loop
         while (true) {
             try {
                 await this.processBatch();
@@ -429,14 +439,33 @@ class AmazonPriceTracker {
     }
 }
 
-/* ================= START WORKER (after server is ready) ================= */
-setTimeout(async () => {
+/* ================= START APPLICATION ================= */
+
+// Self-ping to keep Render happy (ping every 5 minutes during idle time)
+let selfPingInterval;
+const startSelfPing = () => {
+    const pingUrl = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
+    selfPingInterval = setInterval(async () => {
+        try {
+            await axios.get(`${pingUrl}/health`, { timeout: 5000 });
+        } catch (err) {
+            // Ignore errors - just trying to keep service alive
+        }
+    }, 5 * 60 * 1000); // Every 5 minutes
+};
+
+(async () => {
     try {
-        log.info("Starting price tracking worker...");
+        log.info("Initializing Amazon Price Tracker...");
         
         const tracker = new AmazonPriceTracker();
         await tracker.init();
         
+        // Start self-ping to prevent Render from thinking service is dead
+        startSelfPing();
+        log.info("✓ Self-ping enabled (every 5 minutes)\n");
+        
+        // Start background worker (non-blocking)
         tracker.startWorker().catch(err => {
             log.error(`Worker crashed: ${err.message}`);
             process.exit(1);
@@ -446,21 +475,17 @@ setTimeout(async () => {
         log.error(`Fatal initialization error: ${error.message}`);
         process.exit(1);
     }
-}, 1000); // Wait 1 second for server to fully start
+})();
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
     log.info('Received SIGTERM, shutting down gracefully...');
-    server.close(() => {
-        log.info('Server closed');
-        process.exit(0);
-    });
+    if (selfPingInterval) clearInterval(selfPingInterval);
+    process.exit(0);
 });
 
 process.on('SIGINT', () => {
     log.info('Received SIGINT, shutting down gracefully...');
-    server.close(() => {
-        log.info('Server closed');
-        process.exit(0);
-    });
+    if (selfPingInterval) clearInterval(selfPingInterval);
+    process.exit(0);
 });
