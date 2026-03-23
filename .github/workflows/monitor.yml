@@ -25,7 +25,7 @@ jobs:
         run: pip install -r requirements.txt --no-cache-dir
 
       - name: Run price check
-        run: python monitor.py --once
+        run: python main.py --once
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
