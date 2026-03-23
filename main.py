@@ -15,7 +15,20 @@ import httpx
 from bs4 import BeautifulSoup
 from telegram import Bot
 from telegram.constants import ParseMode
+from aiohttp import web
 
+async def health(request):
+    return web.Response(text="OK")
+
+async def start_web():
+    app = web.Application()
+    app.router.add_get("/", health)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.getenv("PORT", 8000))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    
 # ── Logging ──────────────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
@@ -24,13 +37,12 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 # ── Config ────────────────────────────────────────────────────────────────────
-# TELEGRAM_TOKEN   = os.environ["TELEGRAM_TOKEN"]
-# TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
+TELEGRAM_TOKEN   = os.environ["TELEGRAM_TOKEN"]
+TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
-TELEGRAM_TOKEN   = os.getenv("TELEGRAM_TOKEN", "")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
-print("TELEGRAM_TOKEN:", TELEGRAM_TOKEN)
-print("TELEGRAM_CHAT_ID:", TELEGRAM_CHAT_ID)
+# TELEGRAM_TOKEN   = os.getenv("TELEGRAM_TOKEN", "")
+# TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
+
 URLS_FILE        = Path(os.getenv("URLS_FILE", "books.txt"))
 PRICES_FILE      = Path(os.getenv("PRICES_FILE", "prices.json"))
 CHECK_INTERVAL   = int(os.getenv("CHECK_INTERVAL_SECONDS", "3600"))   # 1 hour
@@ -258,6 +270,7 @@ async def main() -> None:
             await asyncio.sleep(CHECK_INTERVAL)
 
     await asyncio.gather(
+        start_web(),
         telegram_listener(bot),
         price_loop(),
     )
