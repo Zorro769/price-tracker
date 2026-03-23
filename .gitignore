@@ -1,22 +1,23 @@
-# Dependencies
-node_modules/
-
-# Environment variables
+# Environment
 .env
+.env.*
 
-# Price data
+# Price cache (runtime data, not for version control)
 prices.json
 
-# Logs
-*.log
-npm-debug.log*
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
 
-# OS files
-.DS_Store
-Thumbs.db
-
-# IDE
+# IDEs
 .vscode/
 .idea/
-*.swp
-*.swo
+*.code-workspace
+
+# OS
+.DS_Store
+Thumbs.db
