@@ -1,0 +1,41 @@
+name: Amazon Price Monitor
+
+on:
+  schedule:
+    - cron: "0 * * * *"   # every hour
+  workflow_dispatch:        # manual "Run workflow" button in GitHub UI
+
+jobs:
+  check-prices:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write       # needed to commit prices.json back to repo
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt --no-cache-dir
+
+      - name: Run price check
+        run: python monitor.py --once
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SCRAPER_API_KEY: ${{ secrets.SCRAPER_API_KEY }}
+          PRICE_DROP_THRESHOLD_PCT: "1"
+
+      - name: Save prices.json back to repo
+        run: |
+          git config user.email "price-bot@github.com"
+          git config user.name "Price Bot"
+          git add prices.json
+          git diff --cached --quiet || git commit -m "chore: update prices [skip ci]"
+          git push

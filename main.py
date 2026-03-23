@@ -1,6 +1,6 @@
 import os
+import sys
 import json
-import time
 import logging
 import asyncio
 import random
@@ -15,20 +15,11 @@ import httpx
 from bs4 import BeautifulSoup
 from telegram import Bot
 from telegram.constants import ParseMode
-from aiohttp import web
 
-async def health(request):
-    return web.Response(text="OK")
+# ── CLI flags ─────────────────────────────────────────────────────────────────
+# Pass --once to run a single check and exit (used by GitHub Actions)
+RUN_ONCE = "--once" in sys.argv
 
-async def start_web():
-    app = web.Application()
-    app.router.add_get("/", health)
-    runner = web.AppRunner(app)
-    await runner.setup()
-    port = int(os.getenv("PORT", 8000))
-    site = web.TCPSite(runner, "0.0.0.0", port)
-    await site.start()
-    
 # ── Logging ──────────────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
@@ -39,9 +30,6 @@ log = logging.getLogger(__name__)
 # ── Config ────────────────────────────────────────────────────────────────────
 TELEGRAM_TOKEN   = os.environ["TELEGRAM_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
-
-# TELEGRAM_TOKEN   = os.getenv("TELEGRAM_TOKEN", "")
-# TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 
 URLS_FILE        = Path(os.getenv("URLS_FILE", "books.txt"))
 PRICES_FILE      = Path(os.getenv("PRICES_FILE", "prices.json"))
@@ -251,10 +239,21 @@ async def check_once(bot: Bot) -> None:
             }
 
     save_prices(known)
-    log.info("Done. Next check in %ds.", CHECK_INTERVAL)
+    if not RUN_ONCE:
+        log.info("Done. Next check in %ds.", CHECK_INTERVAL)
+    else:
+        log.info("Done.")
 
 async def main() -> None:
     bot = Bot(token=TELEGRAM_TOKEN)
+
+    if RUN_ONCE:
+        # ── GitHub Actions mode: check once and exit ──────────────────────────
+        log.info("Running in --once mode (GitHub Actions)")
+        await check_once(bot)
+        return
+
+    # ── Continuous mode: loop forever (Render / local) ───────────────────────
     await send_telegram(
         bot,
         "🚀 <b>Amazon Price Monitor started!</b>\n"
@@ -263,14 +262,12 @@ async def main() -> None:
         "Send me an Amazon URL to add it to the watch list.",
     )
 
-    # Run Telegram listener and price checker concurrently
     async def price_loop():
         while True:
             await check_once(bot)
             await asyncio.sleep(CHECK_INTERVAL)
 
     await asyncio.gather(
-        start_web(),
         telegram_listener(bot),
         price_loop(),
     )
