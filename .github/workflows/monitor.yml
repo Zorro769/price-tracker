@@ -2,7 +2,7 @@ name: Amazon Price Monitor
 
 on:
   schedule:
-    - cron: "0 * * * *"   # every hour
+    - cron: "0 9 * * *" # every day at 9:00 AM UTC
   workflow_dispatch:        # manual "Run workflow" button in GitHub UI
 
 jobs:
