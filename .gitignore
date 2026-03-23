@@ -2,9 +2,6 @@
 .env
 .env.*
 
-# Price cache (runtime data, not for version control)
-prices.json
-
 # Python
 __pycache__/
 *.py[cod]
